@@ -22,7 +22,7 @@ const CORS = {
 
 const baseManifest = {
   id: 'pt.tugaflix.portugueses',
-  version: '1.4.0',
+  version: '1.5.0',
   name: 'Tugaflix PT',
   description: 'Filmes e séries portuguesas (país: Portugal) a partir do tugaflix.',
   resources: [
@@ -201,27 +201,13 @@ async function sourcesToStreams(sources, origin, title) {
   const playable = [];
   const external = [];
   for (const src of sources) {
-    if (src.provider === 'mixdrop' && SERVERLESS) {
-      // Serverless functions are cut after a few seconds/minutes: a proxied movie would stop mid-way.
-      external.push({
-        name: `Tugaflix PT\n${src.label}`,
-        title: `${title}\n🌐 ${src.label} · abre no browser`,
-        externalUrl: src.embed,
-      });
-    } else if (src.provider === 'mixdrop') {
-      // MixDrop links only work with the User-Agent that opened the page, so the addon proxies it.
-      playable.push({
-        name: `Tugaflix PT\n${src.label}`,
-        title: `${title}\n▶ ${src.label} · reproduz no player (via addon)`,
-        url: `${origin}/play/mixdrop/${encodeURIComponent(src.file)}.mp4`,
-        behaviorHints: { notWebReady: false, bingeGroup: `tfpt-${src.label}` },
-      });
-    } else if (src.provider === 'streamtape') {
-      // Resolve on demand through /play so the (IP-bound, expiring) token is always fresh.
+    if (src.provider === 'mixdrop' || src.provider === 'streamtape') {
+      // The direct links are tied to the IP / User-Agent that opened the page, so the video
+      // always goes through the addon (/play/...), which works on any host (home PC, server, Vercel).
       playable.push({
         name: `Tugaflix PT\n${src.label}`,
         title: `${title}\n▶ ${src.label} · reproduz no player`,
-        url: `${origin}/play/streamtape/${encodeURIComponent(src.file)}.mp4`,
+        url: `${origin}/play/${src.provider}/${encodeURIComponent(src.file)}.mp4`,
         behaviorHints: { notWebReady: false, bingeGroup: `tfpt-${src.label}` },
       });
     } else {
@@ -264,61 +250,85 @@ async function handleStream(type, id, origin) {
   return { streams: await sourcesToStreams(sources, origin, `T${season} E${episode}`) };
 }
 
-const mixdropCache = new Map(); // id -> { url, at }
+/* ---------- video proxy (/play/<provider>/<file>.mp4) ---------- */
 
-async function proxyMixdrop(req, res, file) {
-  let hit = mixdropCache.get(file);
-  if (!hit || Date.now() - hit.at > 10 * 60 * 1000) {
-    hit = { url: await resolveMixdrop(file), at: Date.now() };
-    mixdropCache.set(file, hit);
-  }
-  const headers = { 'User-Agent': UA, Referer: 'https://mixdrop.ag/' };
+const PROVIDERS = {
+  streamtape: { resolve: resolveStreamtape, referer: 'https://streamtape.com/' },
+  mixdrop: { resolve: resolveMixdrop, referer: 'https://mixdrop.ag/' },
+};
+
+// On serverless hosts a function is killed after maxDuration (vercel.json: 60 s). We stop each
+// response a bit earlier; the player sees the connection drop and resumes with a Range request
+// from where it was, which starts a new function call.
+const STREAM_BUDGET_MS = Number(process.env.TF_STREAM_BUDGET_MS) || (SERVERLESS ? 50_000 : 0);
+
+const directCache = new Map(); // "provider:file" -> { url, at }
+
+async function directUrl(provider, file, fresh = false) {
+  const key = `${provider}:${file}`;
+  const hit = directCache.get(key);
+  if (!fresh && hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.url;
+  const url = await PROVIDERS[provider].resolve(file);
+  directCache.set(key, { url, at: Date.now() });
+  return url;
+}
+
+async function proxyVideo(req, res, provider, file) {
+  const headers = { 'User-Agent': UA, Referer: PROVIDERS[provider].referer };
   if (req.headers.range) headers.Range = req.headers.range;
+  const method = req.method === 'HEAD' ? 'HEAD' : 'GET';
   const ctrl = new AbortController();
   req.on('close', () => ctrl.abort());
-  let up = await fetch(hit.url, { method: req.method === 'HEAD' ? 'HEAD' : 'GET', headers, signal: ctrl.signal });
-  if (up.status === 403 || up.status === 404) {
-    // token expired: resolve again once
-    hit = { url: await resolveMixdrop(file), at: Date.now() };
-    mixdropCache.set(file, hit);
-    up = await fetch(hit.url, { method: req.method === 'HEAD' ? 'HEAD' : 'GET', headers, signal: ctrl.signal });
+
+  let up = await fetch(await directUrl(provider, file), { method, headers, signal: ctrl.signal });
+  if ([401, 403, 404, 410].includes(up.status)) {
+    // token expired or tied to another IP (serverless hosts change IP): get a fresh link once
+    up.body?.cancel().catch(() => {});
+    up = await fetch(await directUrl(provider, file, true), { method, headers, signal: ctrl.signal });
   }
-  const out = { ...CORS, 'Content-Type': up.headers.get('content-type') || 'video/mp4', 'Accept-Ranges': 'bytes' };
+  if (up.status >= 400) {
+    up.body?.cancel().catch(() => {});
+    res.writeHead(502, { ...CORS, 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end(`${provider}: HTTP ${up.status}`);
+  }
+
+  const out = { ...CORS, 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' };
   for (const h of ['content-length', 'content-range', 'last-modified', 'etag']) {
     const v = up.headers.get(h);
     if (v) out[h] = v;
   }
   res.writeHead(up.status, out);
-  if (!up.body || req.method === 'HEAD') return res.end();
-  Readable.fromWeb(up.body)
+  if (!up.body || method === 'HEAD') return res.end();
+
+  const body = Readable.fromWeb(up.body);
+  let timer;
+  if (STREAM_BUDGET_MS) {
+    timer = setTimeout(() => {
+      // end this piece; the player reconnects with "Range: bytes=<where it stopped>-"
+      body.destroy();
+      ctrl.abort();
+      res.destroy();
+    }, STREAM_BUDGET_MS);
+  }
+  body
     .on('error', () => res.destroy())
+    .on('close', () => clearTimeout(timer))
     .pipe(res);
 }
 
 async function handlePlay(req, res, provider, file) {
-  if (provider === 'mixdrop') {
-    try {
-      return await proxyMixdrop(req, res, file);
-    } catch (err) {
-      if (err.name === 'AbortError') return res.destroy();
-      console.warn(`${LOG} play mixdrop falhou ${file}: ${err.message}`);
-      if (!res.headersSent) res.writeHead(502, { ...CORS, 'Content-Type': 'text/plain; charset=utf-8' });
-      return res.end(err.message);
-    }
-  }
-  if (provider !== 'streamtape') {
+  if (!PROVIDERS[provider]) {
     res.writeHead(404, CORS);
     return res.end();
   }
   try {
-    const direct = await resolveStreamtape(file);
-    res.writeHead(302, { ...CORS, Location: direct, 'Cache-Control': 'no-store' });
+    return await proxyVideo(req, res, provider, file);
   } catch (err) {
-    console.warn(`${LOG} play falhou ${file}: ${err.message}`);
-    res.writeHead(502, { ...CORS, 'Content-Type': 'text/plain; charset=utf-8' });
+    if (err.name === 'AbortError') return res.destroy();
+    console.warn(`${LOG} play ${provider} falhou ${file}: ${err.message}`);
+    if (!res.headersSent) res.writeHead(502, { ...CORS, 'Content-Type': 'text/plain; charset=utf-8' });
     return res.end(err.message);
   }
-  res.end();
 }
 
 /* ---------- router ---------- */
