@@ -22,7 +22,7 @@ const CORS = {
 
 const baseManifest = {
   id: 'pt.tugaflix.portugueses',
-  version: '1.5.0',
+  version: '1.6.0',
   name: 'Tugaflix PT',
   description: 'Filmes e séries portuguesas (país: Portugal) a partir do tugaflix.',
   resources: [
