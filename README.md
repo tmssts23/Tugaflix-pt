@@ -7,7 +7,7 @@ Addon para o Stremio que mostra **só filmes e séries do país Portugal** do [t
 
 - Catálogos **Filmes Portugueses** e **Séries Portuguesas**, com pesquisa e paginação
 - Sub-separador de **categorias** (Drama, Comédia, Thriller…) em cada catálogo, em português e só com
-  categorias que têm títulos. Se adicionares uma categoria nova, reinstala o addon para a lista atualizar.
+  categorias que têm títulos (usa o filtro de género do próprio site).
 - Metadados do site: poster, fundo, sinopse, géneros, rating IMDb, realizador/elenco, temporadas e episódios
 - **Todos os servidores** de cada filme/episódio (lidos do site, novos servidores entram automaticamente):
   - **Streamtape / Tape**: link mp4 direto, reproduz no player do Stremio/Nuvio
@@ -34,6 +34,30 @@ npm start
 
 Instala no Stremio com: `http://127.0.0.1:7010/manifest.json`
 (noutro dispositivo da mesma rede usa o IP do PC, ex.: `http://192.168.1.50:7010/manifest.json`).
+
+## Deploy na Vercel
+
+O projeto já está preparado (`api/index.js` + `vercel.json`, sem dependências nem build):
+
+1. Envia esta pasta para um repositório GitHub (ou usa `npx vercel` dentro da pasta).
+2. Na Vercel: **Add New → Project**, escolhe o repositório, *Framework Preset* = **Other**, sem build command.
+3. Instala no Stremio/Nuvio com `https://<o-teu-projeto>.vercel.app/manifest.json`.
+
+Diferenças na Vercel (cada pedido corre como uma função curta, sem processos em segundo plano):
+
+| | Em casa (`npm start`) | Vercel |
+|---|---|---|
+| Catálogos, categorias, pesquisa, metadados | ✅ | ✅ |
+| Esconder filmes sem vídeo do catálogo | ✅ | ❌ (aparecem, mas sem streams) |
+| Streamtape no player | ✅ | ⚠️ pode falhar: o link fica preso ao IP da Vercel |
+| MixDrop no player | ✅ (proxy) | ❌ passa a "abre no browser" (a função seria cortada a meio do filme) |
+| Servidores "abre no browser" | ✅ | ✅ |
+
+Para ver tudo no player, o melhor é correr em casa (ou num servidor sempre ligado, tipo VPS).
+
+## Logótipo
+
+`public/logo.svg` (fonte) e `public/logo.png`; o PNG também está embutido em `lib/logo.js` e é servido em `/logo.png`.
 
 ## Variáveis de ambiente
 

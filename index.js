@@ -4,12 +4,15 @@ const { Readable } = require('stream');
 const { resolveStreamtape } = require('./lib/streamtape');
 const { resolveMixdrop } = require('./lib/mixdrop');
 const { UA } = require('./lib/http');
+const LOGO = require('./lib/logo');
 
 const PORT = Number(process.env.PORT) || 7010;
 const HOST = process.env.HOST || '0.0.0.0';
 const PREFIX = 'tfpt:';
 const PAGE_SIZE = 100;
 const LOG = '[TugaflixPT]';
+// Vercel (and similar) run each request as a short-lived function: no background jobs, no long streams.
+const SERVERLESS = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -19,7 +22,7 @@ const CORS = {
 
 const baseManifest = {
   id: 'pt.tugaflix.portugueses',
-  version: '1.3.0',
+  version: '1.4.0',
   name: 'Tugaflix PT',
   description: 'Filmes e séries portuguesas (país: Portugal) a partir do tugaflix.',
   resources: [
@@ -48,12 +51,13 @@ const baseManifest = {
 };
 
 /** Manifest with a "genre" sub-filter per catalog (only genres that have titles, once known). */
-function getManifest() {
+function getManifest(origin) {
   return {
     ...baseManifest,
+    ...(origin ? { logo: `${origin}/logo.png` } : {}),
     catalogs: baseManifest.catalogs.map((c) => {
       const kind = c.id === 'tfpt_filmes' ? 'movie' : 'series';
-      const options = tf.genreOptions(kind) || tf.ALL_GENRES_PT;
+      const options = tf.genreOptions(kind) || tf.DEFAULT_GENRES[kind] || tf.ALL_GENRES_PT;
       return { ...c, genres: options, extra: [{ name: 'genre', options }, ...c.extra] };
     }),
   };
@@ -115,15 +119,16 @@ function toMetaPreview(kind, it) {
 async function handleCatalog(type, id, extra) {
   const kind = id === 'tfpt_filmes' ? 'movie' : id === 'tfpt_series' ? 'series' : null;
   if (!kind || kind !== type) return { metas: [] };
-  let list = await tf.getList(kind);
-  // hide movies whose every server says the file was deleted
-  if (kind === 'movie') list = list.filter((it) => !tf.isMovieDead(it.slug));
+  let list;
   if (extra.genre) {
-    // genres come from the detail pages; wait for the background crawl if it hasn't finished
-    if (!tf.genreOptions(kind)) await tf.buildImdbMap();
-    const g = norm(extra.genre);
-    list = list.filter((it) => (tf.getGenres(kind, it.slug) || []).some((x) => norm(x) === g));
+    // the site filters by genre itself (country=pt + genre), so no full crawl is needed
+    const slug = tf.genreSlug(extra.genre);
+    list = slug ? await tf.getList(kind, slug) : [];
+  } else {
+    list = await tf.getList(kind);
   }
+  // hide movies whose every server says the file was deleted (known after the background check)
+  if (kind === 'movie') list = list.filter((it) => !tf.isMovieDead(it.slug));
   if (extra.search) {
     const q = norm(extra.search);
     list = list.filter((it) => norm(it.name).includes(q));
@@ -196,7 +201,14 @@ async function sourcesToStreams(sources, origin, title) {
   const playable = [];
   const external = [];
   for (const src of sources) {
-    if (src.provider === 'mixdrop') {
+    if (src.provider === 'mixdrop' && SERVERLESS) {
+      // Serverless functions are cut after a few seconds/minutes: a proxied movie would stop mid-way.
+      external.push({
+        name: `Tugaflix PT\n${src.label}`,
+        title: `${title}\n🌐 ${src.label} · abre no browser`,
+        externalUrl: src.embed,
+      });
+    } else if (src.provider === 'mixdrop') {
       // MixDrop links only work with the User-Agent that opened the page, so the addon proxies it.
       playable.push({
         name: `Tugaflix PT\n${src.label}`,
@@ -233,11 +245,7 @@ async function handleStream(type, id, origin) {
     ({ kind, slug, season, episode } = parseOwnId(id));
   } else if (id.startsWith('tt')) {
     const [tt, s, e] = id.split(':');
-    let hit = tf.lookupImdb(tt);
-    if (!hit) {
-      await tf.buildImdbMap();
-      hit = tf.lookupImdb(tt);
-    }
+    const hit = await tf.lookupImdbAsync(type === 'series' ? 'series' : 'movie', tt);
     if (!hit) return { streams: [] };
     ({ kind, slug } = hit);
     season = s;
@@ -327,7 +335,17 @@ async function requestHandler(req, res) {
       res.writeHead(302, { Location: '/manifest.json' });
       return res.end();
     }
-    if (parts[0] === 'manifest.json') return send(res, 200, getManifest(), 600);
+    if (parts[0] === 'manifest.json') return send(res, 200, getManifest(originOf(req)), 600);
+
+    if (parts[0] === 'logo.png' || parts[0] === 'favicon.ico') {
+      res.writeHead(200, {
+        ...CORS,
+        'Content-Type': 'image/png',
+        'Content-Length': LOGO.length,
+        'Cache-Control': 'public, max-age=604800',
+      });
+      return res.end(req.method === 'HEAD' ? undefined : LOGO);
+    }
 
     if (parts[0] === 'play' && parts.length === 3) {
       return handlePlay(req, res, parts[1], parts[2].replace(/\.mp4$/, ''));
