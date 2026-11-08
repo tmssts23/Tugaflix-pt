@@ -1,0 +1,13 @@
+{
+  "name": "tugaflix-pt-addon",
+  "version": "1.0.0",
+  "description": "Addon Stremio com filmes e séries portuguesas (país PT) do tugaflix",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=18"
+  }
+}
