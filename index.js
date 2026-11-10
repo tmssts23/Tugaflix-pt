@@ -6,7 +6,8 @@ const { resolveMixdrop } = require('./lib/mixdrop');
 const { UA } = require('./lib/http');
 const LOGO = require('./lib/logo');
 
-const PORT = Number(process.env.PORT) || 7010;
+// Fly.io always routes to 8080 (and sets FLY_APP_NAME); at home the default is 7010.
+const PORT = Number(process.env.PORT) || (process.env.FLY_APP_NAME ? 8080 : 7010);
 const HOST = process.env.HOST || '0.0.0.0';
 const PREFIX = 'tfpt:';
 const PAGE_SIZE = 100;
@@ -18,11 +19,13 @@ const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
   'Access-Control-Allow-Headers': '*',
+  // Chrome "Private Network Access": lets web apps on https reach the addon on a home IP (192.168.x.x)
+  'Access-Control-Allow-Private-Network': 'true',
 };
 
 const baseManifest = {
   id: 'pt.tugaflix.portugueses',
-  version: '1.6.0',
+  version: '1.6.2',
   name: 'Tugaflix PT',
   description: 'Filmes e séries portuguesas (país: Portugal) a partir do tugaflix.',
   resources: [
@@ -341,11 +344,9 @@ async function requestHandler(req, res) {
   const url = new URL(req.url || '/', 'http://x');
   const parts = url.pathname.replace(/^\/+/, '').split('/').filter(Boolean).map(decodeURIComponent);
   try {
-    if (!parts.length) {
-      res.writeHead(302, { Location: '/manifest.json' });
-      return res.end();
-    }
-    if (parts[0] === 'manifest.json') return send(res, 200, getManifest(originOf(req)), 600);
+    // The root URL also answers with the manifest (with CORS), so "https://host/" works as well as
+    // "https://host/manifest.json" in apps that ask for the addon's root ("custom root").
+    if (!parts.length || parts[0] === 'manifest.json') return send(res, 200, getManifest(originOf(req)), 600);
 
     if (parts[0] === 'logo.png' || parts[0] === 'favicon.ico') {
       res.writeHead(200, {
@@ -393,7 +394,7 @@ if (require.main === module) {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
   server.listen(PORT, HOST, () => {
-    console.log(`${LOG} a correr em http://127.0.0.1:${PORT}/manifest.json`);
+    console.log(`${LOG} à escuta em ${HOST}:${PORT} → http://127.0.0.1:${PORT}/manifest.json`);
     // Warm up caches, the IMDb/genre map and the movie availability check in background,
     // and refresh them every 6 hours.
     const warm = () =>
