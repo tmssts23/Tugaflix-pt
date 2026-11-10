@@ -1,0 +1,36 @@
+# Fly.io — https://fly.io/docs/reference/configuration/
+# Muda "app" para um nome único teu (ou deixa o `fly launch` escolher).
+app = "tugaflix-pt"
+primary_region = "mad"   # Madrid, o mais perto de Portugal
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  HOST = "0.0.0.0"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Desliga a máquina quando ninguém usa (poupa dinheiro) e liga sozinha no próximo pedido.
+  # Mete auto_stop_machines = "off" e min_machines_running = 1 se a quiseres sempre ligada.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 100
+    hard_limit = 200
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/manifest.json"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

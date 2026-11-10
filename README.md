@@ -33,6 +33,32 @@ npm start
 Instala no Stremio com: `http://127.0.0.1:7010/manifest.json`
 (noutro dispositivo da mesma rede usa o IP do PC, ex.: `http://192.168.1.50:7010/manifest.json`).
 
+## Deploy no Fly.io (recomendado para alojar)
+
+O Fly.io corre o addon como um servidor normal (contentor Docker), por isso **tudo funciona como em casa**:
+vídeo Streamtape/MixDrop no player sem cortes, verificação de vídeos apagados em segundo plano, catálogo limpo.
+
+Ficheiros: `Dockerfile`, `fly.toml`, `.dockerignore` (não precisas de Docker instalado: o Fly constrói a imagem).
+
+1. Instala o `flyctl` (PowerShell):
+   ```powershell
+   iwr https://fly.io/install.ps1 -useb | iex
+   ```
+2. Inicia sessão: `fly auth login`
+3. Dentro desta pasta, cria a app (usa o `fly.toml` que já existe; troca o nome se `tugaflix-pt` estiver ocupado):
+   ```bash
+   fly launch --no-deploy --copy-config --name <nome-unico>
+   ```
+4. Publica: `fly deploy`
+5. Instala no Nuvio/Stremio: `https://<nome-unico>.fly.dev/manifest.json`
+
+Notas:
+- Região `mad` (Madrid). A máquina **desliga-se quando ninguém a usa** e liga sozinha no próximo pedido
+  (o primeiro pedido demora uns segundos). Para a ter sempre ligada: `auto_stop_machines = "off"` e
+  `min_machines_running = 1` no `fly.toml`.
+- O vídeo passa pela máquina do Fly: conta como tráfego de saída da tua conta (vê os preços no site do Fly.io).
+- Para atualizar depois de mudares o código: `fly deploy`.
+
 ## Deploy na Vercel
 
 O projeto já está preparado (`api/index.js` + `vercel.json`, sem dependências nem build):

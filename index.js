@@ -380,7 +380,19 @@ async function requestHandler(req, res) {
 module.exports = { requestHandler, getManifest };
 
 if (require.main === module) {
-  http.createServer(requestHandler).listen(PORT, HOST, () => {
+  const server = http.createServer(requestHandler);
+
+  // Fly.io / Docker stop the machine with SIGINT/SIGTERM: stop accepting requests and exit cleanly.
+  const shutdown = (sig) => {
+    console.log(`${LOG} ${sig} recebido, a fechar…`);
+    server.close(() => process.exit(0));
+    server.closeIdleConnections?.();
+    setTimeout(() => process.exit(0), 5000).unref(); // don't wait forever for open video streams
+  };
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+  server.listen(PORT, HOST, () => {
     console.log(`${LOG} a correr em http://127.0.0.1:${PORT}/manifest.json`);
     // Warm up caches, the IMDb/genre map and the movie availability check in background,
     // and refresh them every 6 hours.
