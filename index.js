@@ -3,6 +3,7 @@ const tf = require('./lib/tugaflix');
 const { Readable } = require('stream');
 const { resolveStreamtape } = require('./lib/streamtape');
 const { resolveMixdrop } = require('./lib/mixdrop');
+const { resolveVoe, HOST: VOE_HOST } = require('./lib/voe');
 const { UA } = require('./lib/http');
 const LOGO = require('./lib/logo');
 
@@ -261,6 +262,7 @@ async function handleStream(type, id, origin) {
 const PROVIDERS = {
   streamtape: { resolve: resolveStreamtape, referer: 'https://streamtape.com/' },
   mixdrop: { resolve: resolveMixdrop, referer: 'https://mixdrop.ag/' },
+  voe: { resolve: resolveVoe, referer: `${VOE_HOST}/` },
 };
 
 // On serverless hosts a function is killed after maxDuration (vercel.json: 60 s). We stop each
