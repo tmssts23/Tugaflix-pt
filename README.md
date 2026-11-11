@@ -8,6 +8,8 @@ Addon para o Stremio que mostra **só filmes e séries do país Portugal** do [t
 - Catálogos **Filmes Portugueses** e **Séries Portuguesas**, com pesquisa e paginação
 - Sub-separador de **categorias** (Drama, Comédia, Thriller…) em cada catálogo, em português e só com
   categorias que têm títulos (usa o filtro de género do próprio site).
+- Sub-separador **Últimos 7 dias** (o primeiro da lista): filmes e séries portugueses publicados/atualizados no
+  site nos últimos 7 dias, do mais recente para o mais antigo (lê o RSS do site; muda os dias com `TF_RECENT_DAYS`).
 - Metadados do site: poster, fundo, sinopse, géneros, rating IMDb, realizador/elenco, temporadas e episódios
 - **Todos os servidores** de cada filme/episódio (lidos do site, novos servidores entram automaticamente):
   - **Streamtape / Tape** e **MixDrop / Mix**: reproduzem no player do Stremio/Nuvio (o vídeo passa pelo addon)

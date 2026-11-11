@@ -25,7 +25,7 @@ const CORS = {
 
 const baseManifest = {
   id: 'pt.tugaflix.portugueses',
-  version: '1.6.2',
+  version: '1.7.0',
   name: 'Tugaflix PT',
   description: 'Filmes e séries portuguesas (país: Portugal) a partir do tugaflix.',
   resources: [
@@ -60,7 +60,7 @@ function getManifest(origin) {
     ...(origin ? { logo: `${origin}/logo.png` } : {}),
     catalogs: baseManifest.catalogs.map((c) => {
       const kind = c.id === 'tfpt_filmes' ? 'movie' : 'series';
-      const options = tf.genreOptions(kind) || tf.DEFAULT_GENRES[kind] || tf.ALL_GENRES_PT;
+      const options = [tf.RECENT_LABEL, ...(tf.genreOptions(kind) || tf.DEFAULT_GENRES[kind] || tf.ALL_GENRES_PT)];
       return { ...c, genres: options, extra: [{ name: 'genre', options }, ...c.extra] };
     }),
   };
@@ -123,7 +123,10 @@ async function handleCatalog(type, id, extra) {
   const kind = id === 'tfpt_filmes' ? 'movie' : id === 'tfpt_series' ? 'series' : null;
   if (!kind || kind !== type) return { metas: [] };
   let list;
-  if (extra.genre) {
+  if (extra.genre === tf.RECENT_LABEL) {
+    // titles published on the site in the last days (site RSS feed), newest first
+    list = await tf.getRecent(kind);
+  } else if (extra.genre) {
     // the site filters by genre itself (country=pt + genre), so no full crawl is needed
     const slug = tf.genreSlug(extra.genre);
     list = slug ? await tf.getList(kind, slug) : [];
