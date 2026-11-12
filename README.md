@@ -15,6 +15,8 @@ Addon para o Stremio que mostra **só filmes e séries do país Portugal** do [t
   - **Streamtape / Tape** e **MixDrop / Mix**: reproduzem no player do Stremio/Nuvio (o vídeo passa pelo addon)
   - **VOE** (o player dos sites TVParaPobres): só o endpoint `/play/voe/<id>.mp4`, para outros addons tocarem ficheiros
     alojados aí; o catálogo do Tugaflix não usa VOE
+  - **hglink** (StreamHG, outro player dos sites TVParaPobres): só o endpoint `/play/hglink/<id>.m3u8`, uma lista HLS cujos
+    segmentos passam também pelo addon, porque o link fica preso à rede de quem pede a página
   - **Player 2, Vidy, Vidsrc, Vidlink, …**: só existem como página web (embed), aparecem como "abre no browser"
 - Os streams também aparecem nas páginas normais do Stremio/Cinemeta (IDs IMDb `tt…`)
 - Sem dependências (Node 18+, usa `fetch` nativo)
