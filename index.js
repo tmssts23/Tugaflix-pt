@@ -3,6 +3,9 @@ const tf = require('./lib/tugaflix');
 const { Readable } = require('stream');
 const { resolveStreamtape } = require('./lib/streamtape');
 const { resolveMixdrop } = require('./lib/mixdrop');
+const { resolveVoe, HOST: VOE_HOST } = require('./lib/voe');
+const { resolveHglink } = require('./lib/hglink');
+const { getText } = require('./lib/http');
 const { UA } = require('./lib/http');
 const LOGO = require('./lib/logo');
 
@@ -261,6 +264,9 @@ async function handleStream(type, id, origin) {
 const PROVIDERS = {
   streamtape: { resolve: resolveStreamtape, referer: 'https://streamtape.com/' },
   mixdrop: { resolve: resolveMixdrop, referer: 'https://mixdrop.ag/' },
+  voe: { resolve: resolveVoe, referer: `${VOE_HOST}/` },
+  // HLS: /play/hglink/<id>.m3u8, handled by playHls below (its links are tied to who asks, so the segments go through the addon too)
+  hglink: { resolve: resolveHglink, hls: true },
 };
 
 // On serverless hosts a function is killed after maxDuration (vercel.json: 60 s). We stop each
@@ -322,12 +328,70 @@ async function proxyVideo(req, res, provider, file) {
     .pipe(res);
 }
 
-async function handlePlay(req, res, provider, file) {
+const b64url = (s) => Buffer.from(s).toString('base64url');
+
+// The playlist of an HLS provider, with every segment pointed at this addon: the links are tied to the
+// network of who asked for the page, so the segments must be fetched from the same place as the page.
+async function playHls(req, res, provider, file, origin) {
+  const get = async (fresh) => {
+    const master = await directUrl(provider, file, fresh);
+    let text = await getText(master);
+    let base = master;
+    if (!text.includes('#EXTINF')) {
+      base = new URL(text.split('\n').find((l) => l && !l.startsWith('#')), master).href;
+      text = await getText(base);
+    }
+    return { text, base };
+  };
+  let playlist;
+  try {
+    playlist = await get(false);
+  } catch {
+    playlist = await get(true);
+  }
+  const body = playlist.text
+    .split('\n')
+    .map((line) =>
+      !line.trim() || line.startsWith('#')
+        ? line
+        : `${origin}/play/${provider}/${encodeURIComponent(file)}/${b64url(new URL(line.trim(), playlist.base).href)}.ts`,
+    )
+    .join('\n');
+  res.writeHead(200, { ...CORS, 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' });
+  return res.end(req.method === 'HEAD' ? undefined : body);
+}
+
+// One segment, asked for by the address the playlist gave; only public https addresses of .ts files.
+async function playSegment(req, res, token) {
+  const target = new URL(Buffer.from(token.replace(/\.ts$/, ''), 'base64url').toString());
+  if (target.protocol !== 'https:' || !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(target.hostname) || /^[\d.]+$/.test(target.hostname) || !target.pathname.endsWith('.ts')) {
+    res.writeHead(400, CORS);
+    return res.end();
+  }
+  const ctrl = new AbortController();
+  req.on('close', () => ctrl.abort());
+  const up = await fetch(target, { headers: { 'User-Agent': UA }, signal: ctrl.signal });
+  if (up.status >= 400) {
+    up.body?.cancel().catch(() => {});
+    res.writeHead(502, { ...CORS, 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end(`segmento: HTTP ${up.status}`);
+  }
+  const out = { ...CORS, 'Content-Type': 'video/mp2t', 'Cache-Control': 'no-store' };
+  const length = up.headers.get('content-length');
+  if (length) out['content-length'] = length;
+  res.writeHead(200, out);
+  if (!up.body || req.method === 'HEAD') return res.end();
+  Readable.fromWeb(up.body).on('error', () => res.destroy()).pipe(res);
+}
+
+async function handlePlay(req, res, provider, file, origin, segment) {
   if (!PROVIDERS[provider]) {
     res.writeHead(404, CORS);
     return res.end();
   }
   try {
+    if (segment) return await playSegment(req, res, segment);
+    if (PROVIDERS[provider].hls) return await playHls(req, res, provider, file, origin);
     return await proxyVideo(req, res, provider, file);
   } catch (err) {
     if (err.name === 'AbortError') return res.destroy();
@@ -362,7 +426,10 @@ async function requestHandler(req, res) {
     }
 
     if (parts[0] === 'play' && parts.length === 3) {
-      return handlePlay(req, res, parts[1], parts[2].replace(/\.mp4$/, ''));
+      return handlePlay(req, res, parts[1], parts[2].replace(/\.(mp4|m3u8)$/, ''), originOf(req));
+    }
+    if (parts[0] === 'play' && parts.length === 4) {
+      return handlePlay(req, res, parts[1], parts[2], originOf(req), parts[3]);
     }
 
     const [resource, type, rawId, extraSeg] = parts;

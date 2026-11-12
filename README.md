@@ -13,6 +13,10 @@ Addon para o Stremio que mostra **só filmes e séries do país Portugal** do [t
 - Metadados do site: poster, fundo, sinopse, géneros, rating IMDb, realizador/elenco, temporadas e episódios
 - **Todos os servidores** de cada filme/episódio (lidos do site, novos servidores entram automaticamente):
   - **Streamtape / Tape** e **MixDrop / Mix**: reproduzem no player do Stremio/Nuvio (o vídeo passa pelo addon)
+  - **VOE** (o player dos sites TVParaPobres): só o endpoint `/play/voe/<id>.mp4`, para outros addons tocarem ficheiros
+    alojados aí; o catálogo do Tugaflix não usa VOE
+  - **hglink** (StreamHG, outro player dos sites TVParaPobres): só o endpoint `/play/hglink/<id>.m3u8`, uma lista HLS cujos
+    segmentos passam também pelo addon, porque o link fica preso à rede de quem pede a página
   - **Player 2, Vidy, Vidsrc, Vidlink, …**: só existem como página web (embed), aparecem como "abre no browser"
 - Os streams também aparecem nas páginas normais do Stremio/Cinemeta (IDs IMDb `tt…`)
 - Sem dependências (Node 18+, usa `fetch` nativo)
@@ -75,10 +79,10 @@ Diferenças na Vercel (cada pedido corre como uma função curta, sem processos 
 |---|---|---|
 | Catálogos, categorias, pesquisa, metadados | ✅ | ✅ |
 | Esconder filmes sem vídeo do catálogo | ✅ | ❌ (aparecem, mas sem streams) |
-| Streamtape e MixDrop no player | ✅ | ✅ (ver abaixo) |
+| Streamtape, MixDrop e VOE no player | ✅ | ✅ (ver abaixo) |
 | Servidores "abre no browser" | ✅ | ✅ |
 
-**Como o vídeo toca na Vercel:** o Streamtape e o MixDrop passam sempre pelo addon (`/play/...`), porque os links
+**Como o vídeo toca na Vercel:** o Streamtape, o MixDrop e o VOE passam sempre pelo addon (`/play/...`), porque os links
 ficam presos ao IP/User-Agent de quem os pediu. Uma função da Vercel é cortada ao fim de 60 s, por isso o addon termina
 cada ligação aos 50 s (`TF_STREAM_BUDGET_MS`) e o player volta a pedir a partir do byte onde ia (pedido `Range`).
 Os players normais (ExoPlayer, mpv, VLC…) fazem isto sozinhos; pode haver uma pequena pausa a cada ~50 s.
@@ -101,7 +105,7 @@ em 1080p) e a Vercel não foi feita para servir vídeo. Para uso frequente, corr
 
 ## Notas
 
-- Os links do Streamtape ficam **associados ao IP** e os do MixDrop ao **User-Agent** de quem os pediu. Por isso o
+- Os links do Streamtape ficam **associados ao IP** e os do MixDrop ao **User-Agent** de quem os pediu; os do VOE ficam presos ao IP, como os do Streamtape. Por isso o
   vídeo dos dois passa pelo addon (`/play/<servidor>/<id>.mp4`); se o link expirar, o addon pede um novo sozinho.
 - Isto gasta a largura de banda de onde o addon corre (o PC em casa, ou a conta da Vercel).
 - Os servidores "abre no browser" não dão um ficheiro direto (código fechado/encriptado), por isso não tocam no player.
