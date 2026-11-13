@@ -35,6 +35,29 @@ npm start
 Instala no Stremio com: `http://127.0.0.1:7010/manifest.json`
 (noutro dispositivo da mesma rede usa o IP do PC, ex.: `http://192.168.1.50:7010/manifest.json`).
 
+## Deploy no Cloudflare Workers (via GitHub)
+
+Ficheiros: `worker.js` (entrada) + `wrangler.toml`. O código do addon está em `lib/` e é o mesmo do servidor Node.
+O projeto tem menos de 20 ficheiros e nenhuma dependência (sem `node_modules`), por isso pode ser enviado pelo
+site do GitHub (limite de 100 ficheiros por upload).
+
+1. No GitHub: **New repository** → **uploading an existing file** → arrasta o **conteúdo** da pasta `tugaflix-pt`
+   (incluindo as pastas `lib`, `public` e `api`) → **Commit changes**.
+2. No Cloudflare: **Workers & Pages → Create → Import a repository** → escolhe o repositório.
+   Deixa o *Build command* vazio e o *Deploy command* `npx wrangler deploy` (lê o `wrangler.toml`).
+3. Instala no Nuvio/Stremio: `https://tugaflix-pt.<a-tua-conta>.workers.dev/manifest.json`
+
+Sem GitHub, também dá a partir da pasta: `npx wrangler login` e depois `npx wrangler deploy`.
+
+Como no Workers:
+- Catálogos, categorias, "Últimos 7 dias", pesquisa, metadados e streams: ✅
+- Streamtape e MixDrop no player: o vídeo passa pelo Worker, sem cortes (não há limite de tempo enquanto o player
+  está a descarregar).
+- Não há processos em segundo plano: os filmes sem vídeo **aparecem no catálogo** (mas sem streams), como na Vercel.
+- Plano grátis: 100 000 pedidos/dia e 50 pedidos ao site por cada pedido do Stremio (chega para o addon).
+- ⚠️ As condições do Cloudflare não permitem usar o serviço principalmente para servir vídeo; com muito uso a conta
+  pode ser limitada. Para ver muitos filmes, o PC de casa ou o Fly.io são mais seguros.
+
 ## Deploy no Fly.io (recomendado para alojar)
 
 O Fly.io corre o addon como um servidor normal (contentor Docker), por isso **tudo funciona como em casa**:

@@ -1,0 +1,14 @@
+# Cloudflare Workers — https://developers.cloudflare.com/workers/wrangler/configuration/
+# Deploy: `npx wrangler deploy` (or connect the GitHub repo in the Cloudflare dashboard).
+name = "tugaflix-pt"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+# Buffer/process.env for the shared code in lib/ (process.env gets the [vars] below)
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+[vars]
+# TF_BASE_URL = "https://tugaflix.run"   # muda se o site mudar de domínio
+# TF_RECENT_DAYS = "7"
